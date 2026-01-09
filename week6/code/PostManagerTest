@@ -1,1 +1,116 @@
+package application;
+
+import application.interfaces.DateTimeProvider;
+import application.interfaces.Logger;
+import application.interfaces.PlatformService;
+import application.models.Post;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class PostManagerTest {
+
+    // Dummy: logger behaviour not under test
+    private static class DummyLogger implements Logger {
+        @Override
+        public void logEvent(String event) {
+            // do nothing
+        }
+    }
+
+    // Stub: returns a fixed time
+    private static class StubDateTimeProvider implements DateTimeProvider {
+        private final LocalDateTime fixedNow;
+
+        StubDateTimeProvider(LocalDateTime fixedNow) {
+            this.fixedNow = fixedNow;
+        }
+
+        @Override
+        public LocalDateTime now() {
+            return fixedNow;
+        }
+    }
+
+    // Spy: captures log behaviour
+    private static class SpyLogger implements Logger {
+        String lastMessage = null;
+        int callCount = 0;
+
+        @Override
+        public void logEvent(String event) {
+            callCount++;
+            lastMessage = event;
+        }
+    }
+
+    // Spy: captures platform interactions
+    private static class SpyPlatformService implements PlatformService {
+        int scheduleCallCount = 0;
+        int cancelCallCount = 0;
+        Post capturedPost = null;
+        UUID lastCancelledId = null;
+
+        @Override
+        public Post schedulePost(Post post) {
+            scheduleCallCount++;
+            capturedPost = post;
+            return post;
+        }
+
+        @Override
+        public Post cancelPost(UUID postId) {
+            cancelCallCount++;
+            lastCancelledId = postId;
+            return null;
+        }
+    }
+
+    @Test
+    void schedulePost_ValidPost_SchedulesOnceAndIn90Minutes() {
+        LocalDateTime now = LocalDateTime.of(2020, 1, 1, 10, 0);
+        DateTimeProvider dt = new StubDateTimeProvider(now);
+        SpyPlatformService ps = new SpyPlatformService();
+        Logger logger = new DummyLogger();
+
+        PostManager manager = new PostManager(dt, ps, logger);
+        manager.schedulePost("hello");
+
+        assertEquals(1, ps.scheduleCallCount);
+        assertEquals(now.plusMinutes(90), ps.capturedPost.publishAt);
+    }
+
+    @Test
+    void publishNow_ValidPost_PublishesImmediately() {
+        LocalDateTime now = LocalDateTime.of(2021, 6, 15, 9, 30);
+        DateTimeProvider dt = new StubDateTimeProvider(now);
+        SpyPlatformService ps = new SpyPlatformService();
+        Logger logger = new DummyLogger();
+
+        PostManager manager = new PostManager(dt, ps, logger);
+        manager.publishNow("immediate");
+
+        assertEquals(1, ps.scheduleCallCount);
+        assertEquals(now, ps.capturedPost.publishAt);
+    }
+
+    @Test
+    void cancelScheduledPost_ExistingPost_ReturnsTrueAndLogs() {
+        LocalDateTime now = LocalDateTime.of(2022, 3, 10, 8, 0);
+        DateTimeProvider dt = new StubDateTimeProvider(now);
+        SpyPlatformService ps = new SpyPlatformService();
+        SpyLogger logger = new SpyLogger();
+
+        PostManager manager = new PostManager(dt, ps, logger);
+        UUID id = UUID.randomUUID();
+        manager.cancelScheduledPost(id);
+
+        assertEquals(1, ps.cancelCallCount);
+        assertTrue(Objects.nonNull(logger.lastMessage));
+    }
+}
 
